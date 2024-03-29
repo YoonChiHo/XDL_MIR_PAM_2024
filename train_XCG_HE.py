@@ -25,23 +25,26 @@ from Code_Utils import ReplayBuffer
 from Code_Utils import LambdaLR
 from Code_Utils import Logger
 from Code_Utils import weights_init_normal
-from Code_Utils import tensor2image
 def tensor2image(tensor, type):
-    if type == 'HE': # for HE image
-        image = 127.5*(tensor[0].cpu().detach().float().numpy() + 1.0)
+    if type == 'C':
+        image = 127.5*(tensor.permute(1,2,0).cpu().detach().float().numpy() + 1.0)
         return image.astype(np.uint8)
-    else: # for PA image
-        image = ((tensor[0].cpu().detach().float().numpy() * (-0.5)) + 0.5)*255
+    else: 
+        image = 127.5*(tensor[0].cpu().detach().float().numpy() + 1.0)
         return image.astype(np.uint8)
 def display_image_test(images, name):
     imgs = images.squeeze(dim=0)
-    imgs_np = tensor2image(imgs, type='HE')
+    if images.shape[1] == 3:
+        imgs_np = tensor2image(imgs, type='C')
+    else:
+        imgs_np = tensor2image(imgs, type='G')
     imgs_im = Image.fromarray(imgs_np)
     imgs_im.save("%s.png" % (name))
     
+os.makedirs('./checkpoint', exist_ok=True)
 epoch = 0
 n_epochs = 300
-batchSize = 2 #32 #3090 1060x1->x 3090x1->bs8 ncpu32   cpu->bs4 ncpu x
+batchSize = 4  #4
 lr = 0.0001
 decay_epoch = 50
 size =256  # Original used 256
@@ -52,7 +55,7 @@ NUM_WORKER =0
 threshold_A = 60
 threshold_B = 20
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1" # "0, 1, 2, 3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3" # "0, 1, 2, 3"
 netG_A2B = Models.Generator(input_nc, output_nc)
 netG_B2A = Models.Generator(output_nc, input_nc)
 netD_A = Models.Discriminator(input_nc)
@@ -160,25 +163,21 @@ for epoch in range(0, n_epochs):
         fake_A_sigmoid = torch.sigmoid(fake_A_normal)
         fake_B_sigmoid = torch.sigmoid(fake_B_normal)
 
-        display_image_test(real_A[0:1],'realA1')
-        display_image_test(real_B[0:1],'realB1')
-        display_image_test(fake_A[0:1],'fakeA1')
-        display_image_test(fake_B[0:1],'fakeB1')
+        # display_image_test(real_A[0:1],'realA1')
+        # display_image_test(real_B[0:1],'realB1')
+        # display_image_test(fake_A[0:1],'fakeA1')
+        # display_image_test(fake_B[0:1],'fakeB1')
 
 
-        display_image_test(real_A_sigmoid[0:1],'test1_realA1')
-        display_image_test(real_B_sigmoid[0:1],'test1_realB1')
-        display_image_test(fake_A_sigmoid[0:1],'test1_fakeA1')
-        display_image_test(fake_B_sigmoid[0:1],'test1_fakeB1')
-        #adsfsadf
+        # display_image_test(real_A_sigmoid[0:1],'test1_realA1')
+        # display_image_test(real_B_sigmoid[0:1],'test1_realB1')
+        # display_image_test(fake_A_sigmoid[0:1],'test1_fakeA1')
+        # display_image_test(fake_B_sigmoid[0:1],'test1_fakeB1')
         content_loss_A = L1_function( real_A_sigmoid , fake_B_sigmoid )
         content_loss_B = L1_function( fake_A_sigmoid , real_B_sigmoid )
 
-            #content_loss_rate = 50*np.exp(-(counter/data_size))
         content_loss = (content_loss_A + content_loss_B)
        
-       
-
         loss_G = loss_GAN_A2B + loss_GAN_B2A + loss_cycle_ABA + loss_cycle_BAB  + content_loss
 
         loss_G.backward()
@@ -223,13 +222,11 @@ for epoch in range(0, n_epochs):
         optimizer_D_B.step()
             #############################
     
-            # Progress report
+        # Progress report
         Loss = logger.log(losses = {'loss_G': loss_G, 'loss_G_GAN': (loss_GAN_A2B + loss_GAN_B2A), 'loss_G_cycle': (loss_cycle_ABA + loss_cycle_BAB), 'loss_D': (loss_D_A + loss_D_B), 'loss_D_real': (loss_D_real_A + loss_D_real_B), 'loss_D_fake': (loss_D_fake_A + loss_D_fake_B)})
-            # Display images
        
     
     lr_scheduler_G.step()
     lr_scheduler_D_A.step()
     lr_scheduler_D_B.step()
-        
     torch.save(netG_A2B.state_dict(), "./checkpoint/checkpointG_A2B_HE_XCG.pt")
