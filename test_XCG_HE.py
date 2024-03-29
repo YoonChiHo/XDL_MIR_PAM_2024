@@ -1,81 +1,232 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Jul 19 13:30:50 2022
+Created on Tue Jul 19 11:37:33 2022
 
 @author: Sampa
 """
+import itertools
 import Models 
-from Dataset_cycleGAN_HE import TestDataset
+from Dataset_cycleGAN_HE import ImageDataset
 import torchvision.transforms as transforms
 import numpy as np
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
+from torch.optim import Adam
+from torch.cuda import FloatTensor
 import torch
-from PIL import Image
-import glob
-import random
-from Code_Utils import tensor2image
 
-size = 256 # Original used 256
+from PIL import Image
+import torch.nn as nn
+import glob
+import os
+
+
+from Code_Utils import ReplayBuffer
+from Code_Utils import LambdaLR
+from Code_Utils import Logger
+from Code_Utils import weights_init_normal
+def tensor2image(tensor, type):
+    if type == 'C':
+        image = 127.5*(tensor.permute(1,2,0).cpu().detach().float().numpy() + 1.0)
+        return image.astype(np.uint8)
+    else: 
+        image = 127.5*(tensor[0].cpu().detach().float().numpy() + 1.0)
+        return image.astype(np.uint8)
+def display_image_test(images, name):
+    imgs = images.squeeze(dim=0)
+    if images.shape[1] == 3:
+        imgs_np = tensor2image(imgs, type='C')
+    else:
+        imgs_np = tensor2image(imgs, type='G')
+    imgs_im = Image.fromarray(imgs_np)
+    imgs_im.save("%s.png" % (name))
+    
+os.makedirs('./checkpoint', exist_ok=True)
+epoch = 0
+n_epochs = 300
+batchSize = 4  #4
+lr = 0.0001
+decay_epoch = 50
+size =256  # Original used 256
 input_nc = 1
 output_nc = 3
 NUM_WORKER =0
-def display_image_test(images, name):
-    imgs = images.squeeze(dim=0)
-    imgs_np = tensor2image(imgs, type='HE')
-    imgs_im = Image.fromarray(imgs_np)
-    imgs_im.save("test/DL_HE_Test_H/DL_%s.png" % (name))
-def display_image_test_A(images, name):
-    imgs = images.squeeze(dim=0)
-    imgs_np = tensor2image(imgs, type='PA')
-    imgs_im = Image.fromarray(imgs_np)
-def tensor2image(tensor, type):
-    if type == 'HE': # for HE image
-        image = 127.5*(tensor[0].cpu().detach().float().numpy() + 1.0)
-        return image.astype(np.uint8)
-    else: # for PA image
-        image = ((tensor[0].cpu().detach().float().numpy() * (-0.5)) + 0.5)*255
-        return image.astype(np.uint8)
-def main():
-    torch.manual_seed(0)
-    torch.cuda.manual_seed(0)
-    torch.cuda.manual_seed_all(0) # if use multi-GPU
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False  
-    np.random.seed(0)
-    random.seed(0)
-    Tensor = torch.Tensor
-    data_dir_train = "./test"
-    netG_A2B = Models.Generator(input_nc, output_nc)
-    netG_B2A = Models.Generator(output_nc, input_nc)
-    if torch.cuda.device_count() > 1:
-        print("Let's use", torch.cuda.device_count(), "GPUs!")
-        netG_A2B = torch.nn.DataParallel(netG_A2B).cuda()
-        netG_B2A = torch.nn.DataParallel(netG_B2A).cuda()
-        
-    else:
-        netG_A2B = netG_A2B.cuda()
-        netG_B2A = netG_B2A.cuda()
-    
-    netG_A2B.load_state_dict(torch.load('./checkpoint/checkpointG_A2B_HE_XCG.pt'))
-    transforms_test = [ transforms.ToPILImage(),
-                    transforms.ToTensor(),
-                    transforms.Normalize((0.5), (0.5)) 
-                    ]
-    dataset_LR = data_dir_train  + '/Test_H'    
-    n_list_train_LR = sorted(glob.glob('%s/*.png'%(dataset_LR)))
-    print("Number of LR Samples in Test ",len(n_list_train_LR))      
-    Test_dataloader = DataLoader(TestDataset(dataset_LR,transforms_PA=transforms_test), 
-                     batch_size=1, shuffle=False, num_workers=NUM_WORKER)  
-    for i, batch in enumerate(Test_dataloader):
-        # Set model input
-        real_A = Variable(batch["LR"].type(Tensor)) 
-        real_A_class = batch["LR_class"]
-        name = batch["PA_name"]
-        fake_B = netG_A2B(real_A) 
 
-        for idx in range(fake_B.shape[0]):
-            print(name[idx])
-            display_image_test(fake_B[idx:idx+1], name[idx])  
-if __name__ == '__main__':
-    main()    
+threshold_A = 60
+threshold_B = 20
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3" # "0, 1, 2, 3"
+netG_A2B = Models.Generator(input_nc, output_nc)
+netG_B2A = Models.Generator(output_nc, input_nc)
+netD_A = Models.Discriminator(input_nc)
+netD_B = Models.Discriminator(output_nc)
+device = torch.device("cuda")
+if torch.cuda.device_count() > 1:
+    print("Let's use", torch.cuda.device_count(), "GPUs!")
+    netG_A2B = torch.nn.DataParallel(netG_A2B).to(device)
+    netG_B2A = torch.nn.DataParallel(netG_B2A).to(device)
+    netD_A = torch.nn.DataParallel(netD_A).to(device)
+    netD_B = torch.nn.DataParallel(netD_B).to(device)
+else:
+    netG_A2B = netG_A2B.to(device)
+    netG_B2A = netG_B2A.to(device)
+    netD_A = netD_A.to(device)
+    netD_B = netD_B.to(device)
+netG_A2B.apply(weights_init_normal)
+netG_B2A.apply(weights_init_normal)
+netD_A.apply(weights_init_normal)
+netD_B.apply(weights_init_normal)
+
+criterion_GAN = nn.MSELoss()
+criterion_cycle = nn.L1Loss()
+criterion_identity = nn.L1Loss()
+L1_function = torch.nn.L1Loss()
+optimizer_G = Adam(itertools.chain(netG_A2B.parameters(), netG_B2A.parameters()),lr=lr, betas=(0.5, 0.999))
+optimizer_D_A = Adam(netD_A.parameters(), lr=lr, betas=(0.5, 0.999))
+optimizer_D_B = Adam(netD_B.parameters(), lr=lr, betas=(0.5, 0.999))
+
+lr_scheduler_G = torch.optim.lr_scheduler.LambdaLR(optimizer_G, lr_lambda=LambdaLR(n_epochs, epoch, decay_epoch).step)
+lr_scheduler_D_A = torch.optim.lr_scheduler.LambdaLR(optimizer_D_A, lr_lambda=LambdaLR(n_epochs, epoch, decay_epoch).step)
+lr_scheduler_D_B = torch.optim.lr_scheduler.LambdaLR(optimizer_D_B, lr_lambda=LambdaLR(n_epochs, epoch, decay_epoch).step)
+Tensor = FloatTensor 
+target_real = Variable(Tensor(batchSize).fill_(1.0), requires_grad=False)
+target_fake = Variable(Tensor(batchSize).fill_(0.0), requires_grad=False)
+
+fake_A_buffer = ReplayBuffer()
+fake_B_buffer = ReplayBuffer()
+
+data_dir_train = "./Data"
+dataroot_train_LR = data_dir_train  + '/Train_gHR_256'
+dataroot_train_HR = data_dir_train  + '/Train_HR_256'
+n_list_train_LR = sorted(glob.glob('%s/*.png'%(dataroot_train_LR)))
+n_list_train_HR = sorted(glob.glob('%s/*.png'%(dataroot_train_HR)))
+print(len(n_list_train_LR))
+print(len(n_list_train_HR))
+
+transforms_PA = [ transforms.ToPILImage(),
+                      transforms.Resize((256,256)),
+                      transforms.RandomHorizontalFlip(),
+                      transforms.RandomVerticalFlip(),
+                      transforms.ToTensor(),
+                      transforms.Normalize((0.5), (0.5)) ]    
+    
+transforms_HE = [ transforms.ToPILImage(),
+                      transforms.Resize((256,256)),
+                      transforms.RandomHorizontalFlip(),
+                      transforms.RandomVerticalFlip(),
+                      transforms.ToTensor(),    
+                      transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))   ]          
+train_dataloader = DataLoader(ImageDataset(dataroot_train_LR, dataroot_train_HR, transforms_PA=transforms_PA, transforms_HE=transforms_HE, train=True, unaligned=True), 
+                            batch_size=batchSize, shuffle=True, num_workers=NUM_WORKER)
+print(len(train_dataloader)  )   
+ 
+logger = Logger(n_epochs, len(train_dataloader))
+for epoch in range(0, n_epochs):
+    for i, batch in enumerate(train_dataloader):
+            # Set model input
+        real_A = Variable(batch["PA"]).cuda() # [1, 3, 256, 256]
+        real_B = Variable(batch["HE"]).cuda() # [1, 3, 256, 256]
+    
+            # mask generation
+        real_A_class = batch["PA_class"]
+        real_B_class = batch["HE_class"]
+        optimizer_G.zero_grad()
+        fake_B = netG_A2B(real_A) 
+        pred_fake_B = netD_B(fake_B)
+        recovered_A = netG_B2A(fake_B)
+
+        fake_A = netG_B2A(real_B)
+        pred_fake_A = netD_A(fake_A)
+        recovered_B = netG_A2B(fake_A)
+
+
+        loss_GAN_A2B = criterion_GAN(pred_fake_B, target_real)
+        loss_GAN_B2A = criterion_GAN(pred_fake_A, target_real)
+
+        loss_cycle_ABA = criterion_cycle(recovered_A, real_A)*10.0
+        loss_cycle_BAB = criterion_cycle(recovered_B, real_B)*10.0
+        real_A2 = torch.cat([real_A.cuda(),real_A.cuda(),real_A.cuda()], dim=1)
+        fake_A2 = torch.cat([fake_A.cuda(),fake_A.cuda(),fake_A.cuda()], dim=1)
+        real_A_mean = torch.mean(real_A,dim=1,keepdim=True)
+        real_B_mean = torch.mean(real_B,dim=1,keepdim=True)
+        fake_A_mean = torch.mean(fake_A,dim=1,keepdim=True)
+        fake_B_mean = torch.mean(fake_B,dim=1,keepdim=True)
+        real_A_normal = (real_A_mean - (threshold_A/127.5-1))*100
+        real_B_normal = (real_B_mean - (threshold_B/127.5-1))*100
+
+        fake_A_normal = (fake_A_mean - (threshold_B/127.5-1))*100
+        fake_B_normal = (fake_B_mean - (threshold_A/127.5-1))*100
+
+        real_A_sigmoid = torch.sigmoid(real_A_normal)
+        real_B_sigmoid = torch.sigmoid(real_B_normal)
+
+        fake_A_sigmoid = torch.sigmoid(fake_A_normal)
+        fake_B_sigmoid = torch.sigmoid(fake_B_normal)
+
+        # display_image_test(real_A[0:1],'realA1')
+        # display_image_test(real_B[0:1],'realB1')
+        # display_image_test(fake_A[0:1],'fakeA1')
+        # display_image_test(fake_B[0:1],'fakeB1')
+
+
+        # display_image_test(real_A_sigmoid[0:1],'test1_realA1')
+        # display_image_test(real_B_sigmoid[0:1],'test1_realB1')
+        # display_image_test(fake_A_sigmoid[0:1],'test1_fakeA1')
+        # display_image_test(fake_B_sigmoid[0:1],'test1_fakeB1')
+        content_loss_A = L1_function( real_A_sigmoid , fake_B_sigmoid )
+        content_loss_B = L1_function( fake_A_sigmoid , real_B_sigmoid )
+
+        content_loss = (content_loss_A + content_loss_B)
+       
+        loss_G = loss_GAN_A2B + loss_GAN_B2A + loss_cycle_ABA + loss_cycle_BAB  + content_loss
+
+        loss_G.backward()
+        optimizer_G.step()
+            #############################
+    
+            ###### Discriminator A ######
+        optimizer_D_A.zero_grad()
+            
+            # Real loss
+        pred_real = netD_A(real_A)
+        loss_D_real_A = criterion_GAN(pred_real, target_real)
+    
+            # Fake loss
+        fake_A = fake_A_buffer.push_and_pop(fake_A)
+        pred_fake = netD_A(fake_A.detach())
+        loss_D_fake_A = criterion_GAN(pred_fake, target_fake)
+    
+            # Total loss
+        loss_D_A = (loss_D_real_A + loss_D_fake_A)*0.5
+        loss_D_A.backward()
+    
+        optimizer_D_A.step()
+            #############################
+            
+            ###### Discriminator B ######
+        optimizer_D_B.zero_grad()
+    
+            # Real loss
+        pred_real = netD_B(real_B)
+        loss_D_real_B = criterion_GAN(pred_real, target_real)
+            
+            # Fake loss
+        fake_B = fake_B_buffer.push_and_pop(fake_B)
+        pred_fake = netD_B(fake_B.detach())
+        loss_D_fake_B = criterion_GAN(pred_fake, target_fake)
+    
+            # Total loss
+        loss_D_B = (loss_D_real_B + loss_D_fake_B)*0.5
+        loss_D_B.backward()
+    
+        optimizer_D_B.step()
+            #############################
+    
+        # Progress report
+        Loss = logger.log(losses = {'loss_G': loss_G, 'loss_G_GAN': (loss_GAN_A2B + loss_GAN_B2A), 'loss_G_cycle': (loss_cycle_ABA + loss_cycle_BAB), 'loss_D': (loss_D_A + loss_D_B), 'loss_D_real': (loss_D_real_A + loss_D_real_B), 'loss_D_fake': (loss_D_fake_A + loss_D_fake_B)})
+       
+    
+    lr_scheduler_G.step()
+    lr_scheduler_D_A.step()
+    lr_scheduler_D_B.step()
+    torch.save(netG_A2B.state_dict(), "./checkpoint/checkpointG_A2B_HE_XCG.pt")
