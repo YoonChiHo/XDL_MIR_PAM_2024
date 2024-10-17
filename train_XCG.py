@@ -51,6 +51,11 @@ output_nc = 1
 NUM_WORKER =0
 threshold_A = 90
 threshold_B = 60
+
+# Early Stopping with Saliency Loss
+early_saliency = 100000 # Saliency loss lim for early stopping. 
+early_warmup = 0 # Warup epochs for early stopping
+
 netG_A2B = Models.Generator(input_nc, output_nc)
 netG_B2A = Models.Generator(output_nc, input_nc)
 netD_A = Models.Discriminator(input_nc)
@@ -119,6 +124,7 @@ print(len(train_dataloader)  )
  
 logger = Logger(n_epochs, len(train_dataloader))
 for epoch in range(0, n_epochs):
+    saliency_loss = []
     for i, batch in enumerate(train_dataloader):
             # Set model input
         real_A = Variable(batch["PA"]).cuda() # [1, 3, 256, 256]
@@ -170,7 +176,7 @@ for epoch in range(0, n_epochs):
 
         content_loss = (content_loss_A + content_loss_B)
        
-       
+        saliency_loss.append(content_loss.detach().cpu())
 
         loss_G = loss_GAN_A2B + loss_GAN_B2A + loss_cycle_ABA + loss_cycle_BAB + loss_ssim + content_loss
         loss_G.backward()
@@ -218,7 +224,25 @@ for epoch in range(0, n_epochs):
             # Progress report
         Loss = logger.log(losses = {'loss_G': loss_G, 'loss_G_GAN': (loss_GAN_A2B + loss_GAN_B2A), 'loss_G_cycle': (loss_cycle_ABA + loss_cycle_BAB), 'loss_D': (loss_D_A + loss_D_B), 'loss_D_real': (loss_D_real_A + loss_D_real_B), 'loss_D_fake': (loss_D_fake_A + loss_D_fake_B)})
             # Display images
-       
+
+    # Early Stopping with Saliency Loss
+    def vis_diff(img_A, img_B, name):
+
+        image1 = img_A.numpy() 
+        image2 = img_B.numpy()  
+        difference = np.abs(image1 - image2)
+        threshold = 0.1  
+        highlight_mask = difference > threshold
+        image1_rgb = np.stack([image1]*3, axis=-1) 
+        image1_rgb[highlight_mask] = [1, 0, 0] 
+        image1_rgb_uint8 = (image1_rgb * 255).astype(np.uint8)
+        output_image = Image.fromarray(image1_rgb_uint8)
+
+        output_image.save(name)
+    if np.mean(saliency_loss) > early_saliency and epoch >= early_warmup:
+        print(f'ERROR: Epoch {epoch} saliency loss {np.mean(saliency_loss):.4f} is over than limitation {early_saliency}')
+        vis_diff(real_A_sigmoid[0,0,...].detach().cpu(), fake_B_sigmoid[0,0,...].detach().cpu(), f'./checkpoint/Earlystop_e{epoch}_{np.mean(saliency_loss):.4f}.png')
+        break
     
     lr_scheduler_G.step()
     lr_scheduler_D_A.step()
