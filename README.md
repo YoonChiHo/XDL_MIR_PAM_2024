@@ -24,8 +24,7 @@ Test dataset shuld be positioned in 'test' Folder
 
 ### Demo Introduction
 - Step 0. Checkpoint Preparation
-Download checkpoint from [link](https://1drv.ms/f/c/de011cb09ae2716d/EiGgV_zRc1pJuomYOIJWEpsBt7JAHsZ8kYIIUGZD_mlPeQ?e=UR11ty).
-Download the checkpoint parameters from (link)[https://1drv.ms/f/c/de011cb09ae2716d/EiGgV_zRc1pJuomYOIJWEpsBt7JAHsZ8kYIIUGZD_mlPeQ?e=UR11ty] and place them in the checkpoint folder.
+Download the checkpoint parameters from [link](https://1drv.ms/f/c/de011cb09ae2716d/EiGgV_zRc1pJuomYOIJWEpsBt7JAHsZ8kYIIUGZD_mlPeQ?e=UR11ty) and place them in the checkpoint folder.
 - Step 1. Test LR to HR
 Test lowresolution to highresolution transform system with following code.
 'python test_XCG.py'
