@@ -23,12 +23,10 @@ Test dataset shuld be positioned in 'test' Folder
 - test/DL_HR_Test_L # High-resolution test color data in png format, cropped into patches of 256x256 size.(Typically use the test result data from Step 1)
 
 ### Demo Introduction
-- Step 1. Train LR to HR
-Train lowresolution to highresolution transform system with following code.
-'python train_XCG.py'
-Expected output: checkpoint/checkpointG_A2B_HR_XCG.pt (2 days for training)
-
-- Step 2. Test LR to HR
+- Step 0. Checkpoint Preparation
+Download checkpoint from (link)[https://1drv.ms/f/c/de011cb09ae2716d/EiGgV_zRc1pJuomYOIJWEpsBt7JAHsZ8kYIIUGZD_mlPeQ?e=UR11ty].
+Download the checkpoint parameters from (link)[https://1drv.ms/f/c/de011cb09ae2716d/EiGgV_zRc1pJuomYOIJWEpsBt7JAHsZ8kYIIUGZD_mlPeQ?e=UR11ty] and place them in the checkpoint folder.
+- Step 1. Test LR to HR
 Test lowresolution to highresolution transform system with following code.
 'python test_XCG.py'
 Expected output: test/DL_HR_Test_L/{NAME}.png (3 mins for test)
@@ -38,12 +36,7 @@ Explainable results:
 3. test/DL_HR_Test_L/explainable/{NAME}_diff.png : Saliency mask difference between input and generated output
 4. test/DL_HR_Test_L/explainable/{NAME}_grad_{grad_layer}.png : gradCAM output of layer {grad_layer}
 
-- Step 3. Train gray HR to Color HR
-Train gray to color transform system with following code.
-'python train_XCG_HE.py'
-Expected output: checkpoint/checkpointG_A2B_HE_XCG.pt (2 days for training)
-
-- Step 4. Test gray HR to Color HR
+- Step 2. Test gray HR to Color HR
 Test gray to color transform system with following code.
 'python test_XCG_HE.py'
 Expected output: test/DL_HE_Test_H/{NAME}.png (3 mins for test)
