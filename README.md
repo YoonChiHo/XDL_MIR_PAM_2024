@@ -6,10 +6,16 @@ You need Pytorch_with_CUDA for this experiments (pytorch:2.1.0-cuda11.8.0-mambaf
 And following additional packages are neede
 -    matplotlib==3.7.5
 -    pytorch-msssim==1.0.0
+-    opencv-python==4.10.0.84
+-    captum==0.7.0
 
 ### Installtion guide
-Set up your environment with Codeocean system.
-Setting up on a typical desktop takes about a minute.
+Set environment with following:
+`pip install captum
+pip install opencv-python
+pip install pytorch-msssim
+apt-get update -y
+apt-get install -y libgl1-mesa-glx libglib2.0-0`
 
 ### Data Preparation
 Train dataset should be positioned in 'Data' Folder.
