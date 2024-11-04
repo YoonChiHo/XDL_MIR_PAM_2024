@@ -14,28 +14,51 @@ import torch
 from PIL import Image
 import glob
 import random
-from Code_Utils import tensor2image
+import os
+from captum.attr import LayerGradCam
+import cv2
 
+result_path = 'test/DL_HR_Test_L'
+os.makedirs(f'./{result_path}', exist_ok=True)
+os.makedirs(f'./{result_path}/explainable', exist_ok=True)
 size = 256 # Original used 256
 input_nc = 1
 output_nc = 1
+
+threshold_A = 90
+threshold_B = 60
+grad_layer = -1
+
 NUM_WORKER =0
-def display_image_test(images, name):
+def display_gradcam(model, input, grad_layer, save_path):
+    #generator
+    grad_cam = LayerGradCam(model, model.base_model.module.model[grad_layer]) # 26 22
+    attribution0 = grad_cam.attribute(input.unsqueeze(0), target=0) #0red
+    norm_attr = Models.normalize_attr(attribution0[0].cpu().permute(1,2,0).detach().numpy(), sign="all")
+    norm_attr_jet = cv2.applyColorMap(((norm_attr+1)*127.5).astype(np.uint8), cv2.COLORMAP_JET)
+    im = Image.fromarray(norm_attr_jet)
+    im.save(save_path)
+def display_diff(img_A, img_B, name):
+
+    image1 = img_A.numpy() 
+    image2 = img_B.numpy()  
+    difference = np.abs(image1 - image2)
+    threshold = 0.1  
+    highlight_mask = difference > threshold
+    image1_rgb = np.stack([image1]*3, axis=-1) 
+    image1_rgb[highlight_mask] = [1, 0, 0] 
+    image1_rgb_uint8 = (image1_rgb * 255).astype(np.uint8)
+    output_image = Image.fromarray(image1_rgb_uint8)
+
+    output_image.save(name)
+def display_image_test(images, save_path):
     imgs = images.squeeze(dim=0)
-    imgs_np = tensor2image(imgs, type='HE')
+    imgs_np = tensor2image(imgs)
     imgs_im = Image.fromarray(imgs_np)
-    imgs_im.save("test/DL_HR_Test_L/DL_%s.png" % (name))
-def display_image_test_A(images, name):
-    imgs = images.squeeze(dim=0)
-    imgs_np = tensor2image(imgs, type='PA')
-    imgs_im = Image.fromarray(imgs_np)
-def tensor2image(tensor, type):
-    if type == 'HE': # for HE image
-        image = 127.5*(tensor[0].cpu().detach().float().numpy() + 1.0)
-        return image.astype(np.uint8)
-    else: # for PA image
-        image = ((tensor[0].cpu().detach().float().numpy() * (-0.5)) + 0.5)*255
-        return image.astype(np.uint8)
+    imgs_im.save(save_path)
+def tensor2image(tensor):
+    image = 127.5*(tensor.cpu().detach().float().numpy() + 1.0)
+    return image.astype(np.uint8)
 def main():
     torch.manual_seed(0)
     torch.cuda.manual_seed(0)
@@ -47,20 +70,17 @@ def main():
     Tensor = torch.Tensor
     data_dir_train = "./test"
     netG_A2B = Models.Generator(input_nc, output_nc)
-    netG_B2A = Models.Generator(output_nc, input_nc)
     if torch.cuda.device_count() > 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")
         netG_A2B = torch.nn.DataParallel(netG_A2B).cuda()
-        netG_B2A = torch.nn.DataParallel(netG_B2A).cuda()
-        
     else:
         netG_A2B = netG_A2B.cuda()
-        netG_B2A = netG_B2A.cuda()
     
     netG_A2B.load_state_dict(torch.load('./checkpoint/checkpointG_A2B_HR_XCG.pt'))
     transforms_test = [ transforms.ToPILImage(),
-                    transforms.ToTensor(),
-                    transforms.Normalize((0.5), (0.5)) 
+                        transforms.Resize((256,256)),
+                        transforms.ToTensor(),
+                        transforms.Normalize((0.5), (0.5)) 
                     ]
     dataset_LR = data_dir_train  + '/Test_L'    
     n_list_train_LR = sorted(glob.glob('%s/*.png'%(dataset_LR)))
@@ -70,12 +90,23 @@ def main():
     for i, batch in enumerate(Test_dataloader):
         # Set model input
         real_A = Variable(batch["LR"].type(Tensor)) 
-        real_A_class = batch["LR_class"]
         name = batch["PA_name"]
         fake_B = netG_A2B(real_A) 
 
-        for idx in range(fake_B.shape[0]):
-            print(name[idx])
-            display_image_test(fake_B[idx:idx+1], name[idx])  
+        attribution_model = Models.gradcamModel(netG_A2B).eval()
+
+        real_A_mean = torch.mean(real_A,dim=1,keepdim=True)
+        fake_B_mean = torch.mean(fake_B,dim=1,keepdim=True)
+        real_A_normal = (real_A_mean - (threshold_A/127.5-1))*100
+        fake_B_normal = (fake_B_mean - (threshold_A/127.5-1))*100
+        real_A_sigmoid = torch.sigmoid(real_A_normal)
+        fake_B_sigmoid = torch.sigmoid(fake_B_normal)
+
+        print(name[0])
+        display_image_test(fake_B[0], f"{result_path}/{name[0]}.png")  
+        display_diff(real_A_sigmoid[0,0,...].detach().cpu(), fake_B_sigmoid[0,0,...].detach().cpu(), f"{result_path}/explainable/{name[0]}_diff.png")
+        display_image_test(real_A_sigmoid[0], f"{result_path}/explainable/{name[0]}_A.png")  
+        display_image_test(fake_B_sigmoid[0], f"{result_path}/explainable/{name[0]}_B.png")  
+        display_gradcam(attribution_model, real_A[0], grad_layer, f"{result_path}/explainable/{name[0]}_grad_{grad_layer}.png")
 if __name__ == '__main__':
     main()    

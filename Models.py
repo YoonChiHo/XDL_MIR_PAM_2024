@@ -9,6 +9,14 @@ from torch.nn.init import constant_
 from torch.nn.utils import spectral_norm
 from torch.nn.modules.conv import ConvTranspose1d
 from itertools import repeat
+import numpy as np
+from enum import Enum
+
+class VisualizeSign(Enum):
+    positive = 1
+    absolute_value = 2
+    negative = 3
+    all = 4
 
 def _generate_hold_kernel(in_channels, kernel_size, order):
     zoh_kernel_size = (kernel_size, kernel_size)
@@ -160,4 +168,55 @@ class Discriminator(nn.Module):
          return x
 
 
+class gradcamModel(nn.Module):
+    def __init__(self, base_model):
+        super(gradcamModel, self).__init__()
+        self.base_model = base_model  # 기존 모델
+    def forward(self, x):
+        x = self.base_model(x)  
+        return torch.sum(x, dim=(2, 3)) #For gradcam
+    
+def normalize_attr(attr, sign, outlier_perc = 2, reduction_axis = 2):
+    def _normalize_scale(attr, scale_factor):
+        #if scale_factor == 0: scale_factor = 1e-5
+        #assert scale_factor != 0, "Cannot normalize by scale factor = 0"
+        if abs(scale_factor) < 1e-5:
+            warnings.warn(
+                "Attempting to normalize by value approximately 0, visualized results"
+                "may be misleading. This likely means that attribution values are all"
+                "close to 0."
+            )
+        attr_norm = attr / scale_factor
+        return np.clip(attr_norm, -1, 1)
 
+    def _cumulative_sum_threshold(values, percentile):
+        # given values should be non-negative
+        assert percentile >= 0 and percentile <= 100, (
+            "Percentile for thresholding must be " "between 0 and 100 inclusive."
+        )
+        sorted_vals = np.sort(values.flatten())
+        cum_sums = np.cumsum(sorted_vals)
+        threshold_id = np.where(cum_sums >= cum_sums[-1] * 0.01 * percentile)[0][0]
+        return sorted_vals[threshold_id]
+    
+    attr_combined = attr
+    if reduction_axis is not None:
+        attr_combined = np.sum(attr, axis=reduction_axis)
+
+    # Choose appropriate signed values and rescale, removing given outlier percentage.
+    if VisualizeSign[sign] == VisualizeSign.all:
+        threshold = _cumulative_sum_threshold(np.abs(attr_combined), 100 - outlier_perc)
+    elif VisualizeSign[sign] == VisualizeSign.positive:
+        attr_combined = (attr_combined > 0) * attr_combined
+        threshold = _cumulative_sum_threshold(attr_combined, 100 - outlier_perc)
+    elif VisualizeSign[sign] == VisualizeSign.negative:
+        attr_combined = (attr_combined < 0) * attr_combined
+        threshold = -1 * _cumulative_sum_threshold(
+            np.abs(attr_combined), 100 - outlier_perc
+        )
+    elif VisualizeSign[sign] == VisualizeSign.absolute_value:
+        attr_combined = np.abs(attr_combined)
+        threshold = _cumulative_sum_threshold(attr_combined, 100 - outlier_perc)
+    else:
+        raise AssertionError("Visualize Sign type is not valid.")
+    return _normalize_scale(attr_combined, threshold)
