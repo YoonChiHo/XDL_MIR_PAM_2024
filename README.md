@@ -22,22 +22,22 @@ Test dataset shuld be positioned in 'test' Folder
 
 ## Demo Introduction
 ### Step 0. Checkpoint Preparation  
-Download the checkpoint parameters from [link](https://1drv.ms/f/c/de011cb09ae2716d/EiGgV_zRc1pJuomYOIJWEpsBt7JAHsZ8kYIIUGZD_mlPeQ?e=UR11ty) and place them in the checkpoint folder.
+Download the checkpoint parameters from [link](https://1drv.ms/f/c/de011cb09ae2716d/EiGgV_zRc1pJuomYOIJWEpsBt7JAHsZ8kYIIUGZD_mlPeQ?e=UR11ty) and place them in the 'checkpoint' folder.  
 ### Step 1. Test LR to HR  
-Test lowresolution to highresolution transform system with following code.
-'python test_XCG.py'
-Expected output: test/DL_HR_Test_L/{NAME}.png (3 mins for test)
-Explainable results:
-1. test/DL_HR_Test_L/explainable/{NAME}_A.png : Saliency mask of input
-2. test/DL_HR_Test_L/explainable/{NAME}_B.png : Saliency mask of generated output
-3. test/DL_HR_Test_L/explainable/{NAME}_diff.png : Saliency mask difference between input and generated output
-4. test/DL_HR_Test_L/explainable/{NAME}_grad_{grad_layer}.png : gradCAM output of layer {grad_layer}
+Test low resolution to high resolution transform system with following code.  
+'python test_XCG.py'  
+Expected output: test/DL_HR_Test_L/{NAME}.png (3 mins for test)  
+Explainable results:  
+1. test/DL_HR_Test_L/explainable/{NAME}_A.png : Saliency mask of input  
+2. test/DL_HR_Test_L/explainable/{NAME}_B.png : Saliency mask of generated output  
+3. test/DL_HR_Test_L/explainable/{NAME}_diff.png : Saliency mask difference between input and generated output  
+4. test/DL_HR_Test_L/explainable/{NAME}_grad_{grad_layer}.png : gradCAM output of layer {grad_layer}  
 
 ### Step 2. Test gray HR to Color HR  
-Test gray to color transform system with following code.
-'python test_XCG_HE.py'
-Expected output: test/DL_HE_Test_H/{NAME}.png (3 mins for test)
-Explainable results:
-1. test/DL_HE_Test_H/explainable/{NAME}_A.png : Saliency mask of input
-2. test/DL_HE_Test_H/explainable/{NAME}_B.png : Saliency mask of generated output
-3. test/DL_HE_Test_H/explainable/{NAME}_diff.png : Saliency mask difference between input and generated output
+Test gray to color transform system with following code.  
+'python test_XCG_HE.py'  
+Expected output: test/DL_HE_Test_H/{NAME}.png (3 mins for test)  
+Explainable results: 
+1. test/DL_HE_Test_H/explainable/{NAME}_A.png : Saliency mask of input  
+2. test/DL_HE_Test_H/explainable/{NAME}_B.png : Saliency mask of generated output  
+3. test/DL_HE_Test_H/explainable/{NAME}_diff.png : Saliency mask difference between input and generated output  
