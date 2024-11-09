@@ -43,6 +43,6 @@ Explainable results:
 3. test/DL_HE_Test_H/explainable/{NAME}_diff.png : Saliency mask difference between input and generated output
 
 ---
-This code was developed with reference to:
+This code was developed with reference to:  
 Zhu, Jun-Yan, et al. "Unpaired image-to-image translation using cycle-consistent adversarial networks." Proceedings of the IEEE International Conference on Computer Vision. 2017.
 
