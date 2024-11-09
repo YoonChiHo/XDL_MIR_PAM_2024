@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Created on Tue Jul 19 11:37:33 2022
+# This code is developed with reference to the following paper:
+# Zhu, Jun-Yan, et al. "Unpaired image-to-image translation using cycle-consistent adversarial networks." Proceedings of the IEEE International Conference on Computer Vision. 2017.
 
 @author: Sampa
 """
